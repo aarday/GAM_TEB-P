@@ -1,0 +1,166 @@
+### Verideki bölgelere gam uygulayıp summary'den verileri alır (NAO)
+AR_ae_summary_nao <- function(data){
+  x <- nrow(as_data_frame(unique(data$area)))
+  result <- as.data.frame(matrix(ncol = 4, nrow = 0))
+  repeat{
+    q <- as_data_frame(unique(data$area))
+    w <- q$value[x]
+    veri_fun <- data %>% filter(area == w)
+    a <- gam(total_count ~ s(mean_nao),data = veri_fun, method = "REML")
+    b <- summary(a)
+    c <- as.data.frame(w)
+    c$dev.expl <- b[["dev.expl"]]*100
+    c$p.t <- b[["p.t"]]
+    c$p.pv <- b[["p.pv"]]
+    result <- rbind(c,result)
+    x <- x-1
+    
+    if(x == 0){
+      break
+    }
+  }
+  return(result)
+}
+
+### Verideki bölgelere gam uygulayıp summary'den verileri alır (Year)
+AR_ae_summary_year <- function(data){
+  x <- nrow(as_data_frame(unique(data$area)))
+  result <- as.data.frame(matrix(ncol = 4, nrow = 0))
+  repeat{
+    q <- as_data_frame(unique(data$area))
+    w <- q$value[x]
+    veri_fun <- data %>% filter(area == w)
+    a <- gam(total_count ~ s(data_year),data = veri_fun, method = "REML")
+    b <- summary(a)
+    c <- as.data.frame(w)
+    c$dev.expl <- b[["dev.expl"]]*100
+    c$p.t <- b[["p.t"]]
+    c$p.pv <- b[["p.pv"]]
+    result <- rbind(c,result)
+    x <- x-1
+    
+    if(x == 0){
+      break
+    }
+  }
+  return(result)
+}
+
+### Verideki bölgelere gam uygulayıp summary'den verileri alır (Year+Nao)
+AR_ae_summary_year_nao <- function(data){
+  x <- nrow(as_data_frame(unique(data$area)))
+  result <- as.data.frame(matrix(ncol = 4, nrow = 0))
+  repeat{
+    q <- as_data_frame(unique(data$area))
+    w <- q$value[x]
+    veri_fun <- data %>% filter(area == w)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao),data = veri_fun, method = "REML")
+    b <- summary(a)
+    c <- as.data.frame(w)
+    c$dev.expl <- b[["dev.expl"]]*100
+    c$p.t <- b[["p.t"]]
+    c$p.pv <- b[["p.pv"]]
+    result <- rbind(c,result)
+    x <- x-1
+    
+    if(x == 0){
+      break
+    }
+  }
+  return(result)
+}
+
+### Tek parametreden gam hesabı
+AR_gamsummary1 <- function(data){
+  v <- nrow(as_data_frame(unique(data$parameter)))
+  v <- as.numeric(v)
+  result_1 <- as.data.frame(matrix(ncol = 4, nrow = 0))
+  result <- as.data.frame(matrix(ncol = 4, nrow = 0))
+  repeat{
+    x <- nrow(as_data_frame(unique(data$area)))
+    x <- as.numeric(x)
+    z <- as_data_frame(unique(data$parameter))
+    l <- z$value[v]
+    repeat{
+      q <- as_data_frame(unique(data$area))
+      w <- q$value[x]
+      veri_fun <- data %>% filter(area == w, parameter == l)
+      a <- gam(total_count ~ s(ann_summer, by = data_year, k = 3),data = veri_fun, method = "REML")
+      b <- summary(a)
+      c <- as.data.frame(w)
+      c$dev.expl <- b[["dev.expl"]]*100
+      c$p.t <- b[["p.t"]]
+      c$p.pv <- b[["p.pv"]]
+      c$parameter <- l
+      result <- rbind(c,result)
+      x <- x-1
+      
+      if(x == 0){
+        break
+      }
+    }
+    result_1 <- rbind(result,result_1)
+    v <- v-1
+    
+    if(v == 0){
+      break
+    }
+  }
+  return(result)
+}
+
+### Çift parametreden gam hesabı
+AR_gamsummary2 <- function(data){
+  q <- nrow(as_data_frame(unique(data$parameter)))
+  q <- as.numeric(q)
+  result_2 <- as.data.frame(matrix(ncol = 4, nrow = 0))
+  repeat{
+    w <- as_data_frame(unique(data$parameter))
+    e <- w$value[q]
+    y = q
+    result_1 <- as.data.frame(matrix(ncol = 4, nrow = 0))
+    repeat{
+      z <- as_data_frame(unique(data$parameter))
+      t <- z$value[y]
+      u <- nrow(as_data_frame(unique(data$area)))
+      u <- as.numeric(u)
+      result <- as.data.frame(matrix(ncol = 4, nrow = 0))
+        repeat{
+          ı <- as_data_frame(unique(data$area))
+          o <- ı$value[u]
+          veri_fun1 <- data %>% filter(parameter == e, area == o) %>%
+            select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count)
+          veri_fun2 <- data %>% filter(parameter == t, area == o) %>%
+            select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count)
+          veri_fun <- veri_fun1 %>% inner_join(veri_fun2, by =c("year","area","total_count"))
+          a <- gam(total_count ~ s(ann_pre.x, k = 3)+s(ANN.y, k = 3),data = veri_fun, method = "REML")
+          s <- summary(a)
+          d <- as.data.frame(o)
+          d$dev.expl <- s[["dev.expl"]]*100
+          d$p.t <- s[["p.t"]]
+          d$p.pv <- s[["p.pv"]]
+          d$par1 <- e
+          d$par2 <- t
+          result <- rbind(d,result)
+          u <- u-1
+          
+          if(u == 0){
+            break
+          }
+        }
+     result_1 <- rbind(result,result_1)
+     y <- y-1
+     
+     if(y == 0){
+       break
+     }
+    }
+    result_2 <- rbind(result_1,result_2)
+    q <- q-1
+    
+    if(q == 0){
+      break
+    }
+    }
+  return(result_2)
+  }
