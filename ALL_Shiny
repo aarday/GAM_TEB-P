@@ -1,0 +1,1143 @@
+---
+title: "Midwinter Waterfowl Count(KOSKS)"
+output: html_notebook
+runtime: shiny
+---
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(ggforce)
+library(gridExtra)
+library(leaflet)
+library(shinyWidgets)
+library(mgcv)
+library(nlme)
+
+path_1 <- getwd()
+KOSKS_path <- file.path(path_1,"KOSKS_DATA.xlsx")
+nao0_path <- file.path(path_1,"NAO INDEX.xlsx")
+KOSK_Species_path <- file.path(path_1,"KOSKS_Species.xlsx")
+GAM_cliS <- file.path(path_1,"İklimgamsonS.xlsx")
+GAM_CliD <- file.path(path_1,"İklimgamsonD.xlsx")
+cli_data0 <- file.path(path_1,"cli_data_v3.0.xlsx")
+
+
+veri0 <- read_excel(KOSKS_path)
+nao0 <- read_excel(nao0_path)
+veri_taxonomy <- read_excel(KOSK_Species_path)
+gamsummaryS <- read_excel(GAM_cliS)
+gamsummaryD <- read_excel(GAM_CliD)
+cli0 <- read_excel(cli_data0)
+
+
+### Yıl yıl yapılan farklı sayım bölgeleri toplamı+
+veri_year2count <- veri0 %>% select(year,county,area,latitude,longitude,species_name_TR,species_name_scientific,count) %>% 
+  group_by(area) %>% count(year) %>% ungroup() %>% group_by(year) %>% count(area) %>% summarize(total = sum(n)) %>%
+  filter(year >= 1986)
+### Tüm bölgelerin verisi+
+veri_shiny_ae2ae <- veri0 %>% group_by(year,area) %>% summarize(total_count = sum(count)) %>% arrange(area) %>% filter(year >= 1986) %>%
+  mutate(data_year = year-1985) 
+### Tüm türler verisi+
+veri_shiny_sp2sp <- veri0 %>% group_by(year,species_name_scientific,species_name_TR) %>% summarize(total_count = sum(count)) %>%
+  arrange(species_name_scientific) %>% filter(year >= 1986) %>% inner_join(veri_year2count, by = "year") %>% mutate(data_year = year-1985)
+### Yıl yıl / Bölgeler+
+veri_y2y_area <- veri0 %>% select(year,county,area,latitude,longitude,species_name_TR,species_name_scientific,count) %>%
+  group_by(year) %>% count(area) %>% filter(year >= 1986) %>% arrange(area) %>%
+  group_by(area) %>% mutate(sd1 = sd(n[1:2]),sd2 = sd(n[2:3]),sd3 = sd(n[3:4]),sd4 = sd(n[4:5]),sd5 = sd(n[5:6]),
+                        sd6 = sd(n[6:7]),sd7 = sd(n[7:8]),sd8 = sd(n[8:9]),sd9 = sd(n[9:10]),sd10 = sd(n[10:11]),
+                        sd11 = sd(n[11:12]),sd12 = sd(n[12:13]),sd13 = sd(n[13:14]),sd14 = sd(n[14:15]),sd15 = sd(n[15:16]),
+                        sd16 = sd(n[16:17]),sd17 = sd(n[17:18]),sd18 = sd(n[18:19]),sd19 = sd(n[19:20]),sd20 = sd(n[20:21]),
+                        sd21 = sd(n[21:22]),sd22 = sd(n[22:23]),sd23 = sd(n[23:24]),sd24 = sd(n[24:25]),sd25 = sd(n[25:26]),
+                        sd26 = sd(n[26:27]),sd27 = sd(n[27:28]),sd28 = sd(n[28:29]),sd29 = sd(n[29:30])) %>%
+  select(-year,-n) %>% group_by(area) %>% mutate(mean_sd = mean(c_across(sd1:sd29), na.rm = TRUE)) %>% select(area,mean_sd) %>% 
+  ungroup() %>% group_by(area,mean_sd) %>% unique()
+
+veri_cal_fr_area <- veri0 %>% select(year,county,area,latitude,longitude,species_name_TR,species_name_scientific,count) %>%
+  group_by(year) %>% count(area) %>% filter(year >= 1986) %>% ungroup() %>% count(area) %>% mutate(fr = n/35)
+
+veri_cal_count_area <- veri0 %>% select(year,county,area,latitude,longitude,species_name_TR,species_name_scientific,count) %>%
+  group_by(year,area) %>% summarize(total_count = sum(count)) %>% select(year, area,total_count) %>% filter(year >= 1986) 
+
+veri_shiny_area_sd <- veri_y2y_area %>% inner_join(veri_cal_fr_area, by = "area") %>% filter(fr >= 0.50) %>% 
+  mutate(real_fr = mean_sd*fr) %>% arrange(desc(real_fr)) 
+
+veri_shiny_area_sd <- veri_cal_count_area %>% inner_join(veri_shiny_area_sd, by = "area") %>% arrange(desc(real_fr)) %>%
+  unique() %>% ungroup()
+
+### Yıl Yıl / Türler+
+veri_y2y_sp <- veri0 %>% select(year,county,area,latitude,longitude,species_name_TR,species_name_scientific,count) %>%
+  group_by(year,species_name_TR) %>% count(species_name_scientific) %>% filter(year >= 1986) %>% 
+  arrange(species_name_scientific) %>% group_by(species_name_scientific) %>% 
+                                        mutate(sd1 = sd(n[1:2]),sd2 = sd(n[2:3]),sd3 = sd(n[3:4]),sd4 = sd(n[4:5]),
+                                               sd5 = sd(n[5:6]),sd6 = sd(n[6:7]),sd7 = sd(n[7:8]),sd8 = sd(n[8:9]),
+                                               sd9 = sd(n[9:10]),sd10 = sd(n[10:11]),sd11 = sd(n[11:12]),sd12 = sd(n[12:13]),
+                                               sd13 = sd(n[13:14]),sd14 = sd(n[14:15]),sd15 = sd(n[15:16]), 
+                                               sd16 = sd(n[16:17]),sd17 = sd(n[17:18]),sd18 = sd(n[18:19]),
+                                               sd19 = sd(n[19:20]),sd20 = sd(n[20:21]),sd21 = sd(n[21:22]),
+                                               sd22 = sd(n[22:23]),sd23 = sd(n[23:24]),sd24 = sd(n[24:25]),
+                                               sd25 = sd(n[25:26]),sd26 = sd(n[26:27]),sd27 = sd(n[27:28]),
+                                               sd28 = sd(n[28:29]),sd29 = sd(n[29:30])) %>%
+  select(-year,-n) %>% group_by(species_name_scientific) %>% mutate(mean_sd = mean(c_across(sd1:sd29), na.rm = TRUE)) %>%  
+  select(species_name_scientific,species_name_TR,mean_sd) %>% unique()
+
+veri_cal_fr_sp <- veri0 %>% select(year,species_name_TR,species_name_scientific,count) %>% group_by(year) %>% 
+  count(species_name_TR) %>% filter(year >= 1986) %>% 
+  ungroup() %>% count(species_name_TR) %>% mutate(fr = n/35)
+
+veri_cal_count_sp <- veri0 %>% select(year,species_name_TR,species_name_scientific,count) %>% 
+  group_by(year,species_name_TR,species_name_scientific) %>% summarize(total_count = sum(count)) %>% 
+  select(year,species_name_TR,species_name_scientific,total_count) %>% filter(year >= 1986)
+
+veri_shiny_sp_sd <- veri_y2y_sp %>% inner_join(veri_cal_fr_sp, by = "species_name_TR") %>% filter(fr >= 0.50) %>%
+  mutate(real_fr = mean_sd*fr) %>% arrange(desc(real_fr)) 
+
+veri_shiny_sp_sd <- veri_cal_count_sp %>% inner_join(veri_shiny_sp_sd, by = "species_name_TR") %>% arrange(desc(real_fr)) %>%
+  inner_join(veri_year2count, by = "year") %>% unique()
+
+### Takson içeren veri+
+veri0_taxon <- veri0 %>% left_join(veri_taxonomy, by = "species_name_scientific") %>% 
+  select(year,area,latitude,longitude,species_name_scientific,species_name_TR,count,result.order,result.family) %>% 
+  filter(year >= 1986) %>% mutate(data_year = year-1985) %>% unique()
+  
+### Area_y2y_sd'nin Türleri+
+veri_shiny_area_sd_sp <- veri0_taxon %>% filter(year >= 1986) %>% group_by(year,species_name_TR,area) %>% 
+  summarize(total_count = sum(count)) %>% filter(area %in% c(veri_shiny_area_sd$area)) %>% unique() 
+
+### NAO_winter verisi dahil+
+nao_winter <- nao0 %>% select(year,DEC,JAN,FEB) %>% rowwise() %>% mutate(mean_nao = mean(c(DEC,JAN,FEB)))
+nao_winter0 <- nao_winter %>% select(year,mean_nao) %>% filter(year >= 1986)
+veri_nao_sp <- veri0 %>% group_by(year,species_name_TR) %>% mutate(total_count = sum(count)) %>% filter(year >= 1986) %>% 
+  select(year,species_name_TR,species_name_scientific,total_count) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) %>%
+  unique()
+veri_nao_area <- veri0 %>% group_by(year,area) %>% mutate(total_count = sum(count)) %>% filter(year >= 1986) %>% 
+  select(year,area,total_count) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) %>% unique()
+veri_shiny_area_sd <- veri_shiny_area_sd %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985)
+veri_shiny_area_sd_sp <- veri_shiny_area_sd_sp %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985)
+veri_shiny_sp_sd <- veri_shiny_sp_sd %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985)
+
+### NAO_prewinter verisi dahil+
+nao_prewinter <- nao0 %>% select(year,SEP,OCT,NOV) %>% rowwise() %>% mutate(mean_prenao = mean(c(SEP,OCT,NOV))) %>% select(year,mean_prenao)
+veri_nao_sp <- veri_nao_sp %>% inner_join(nao_prewinter, by = "year")
+veri_nao_area <- veri_nao_area %>% inner_join(nao_prewinter, by = "year")
+veri_shiny_area_sd <- veri_shiny_area_sd %>% inner_join(nao_prewinter, by = "year") 
+veri_shiny_area_sd_sp <- veri_shiny_area_sd_sp %>% inner_join(nao_prewinter, by = "year") 
+veri_shiny_sp_sd <- veri_shiny_sp_sd %>% inner_join(nao_prewinter, by = "year")
+
+### NAO_postwinter verisi dahil+
+nao_postwinter <- nao0 %>% select(year,MAR,APR,MAY) %>% rowwise() %>% mutate(mean_postnao = mean(c(MAR,APR,MAY))) %>% select(year,mean_postnao)
+veri_nao_sp <- veri_nao_sp %>% inner_join(nao_postwinter, by = "year")
+veri_nao_area <- veri_nao_area %>% inner_join(nao_postwinter, by = "year")
+veri_shiny_area_sd <- veri_shiny_area_sd %>% inner_join(nao_postwinter, by = "year") 
+veri_shiny_area_sd_sp <- veri_shiny_area_sd_sp %>% inner_join(nao_postwinter, by = "year") 
+veri_shiny_sp_sd <- veri_shiny_sp_sd %>% inner_join(nao_postwinter, by = "year")
+
+### NAO_summer verisi dahil+
+nao_summer <- nao0 %>% select(year,JUN,JUL,AUG) %>% rowwise() %>% mutate(mean_summer = mean(c(JUN,JUL,AUG))) %>% select(year,mean_summer)
+veri_nao_sp <- veri_nao_sp %>% inner_join(nao_summer, by = "year")
+veri_nao_area <- veri_nao_area %>% inner_join(nao_summer, by = "year")
+veri_shiny_area_sd <- veri_shiny_area_sd %>% inner_join(nao_summer, by = "year") 
+veri_shiny_area_sd_sp <- veri_shiny_area_sd_sp %>% inner_join(nao_summer, by = "year") 
+veri_shiny_sp_sd <- veri_shiny_sp_sd %>% inner_join(nao_summer, by = "year")
+
+### NAO_all verisi dahil+
+nao_all <- nao0 %>% rowwise() %>% mutate(mean_all = mean(c(JAN,FEB,MAR,APR,MAY,JUN,JUL,AUG,SEP,OCT,NOV,DEC))) %>% select(year,mean_all)
+veri_nao_sp <- veri_nao_sp %>% inner_join(nao_all, by = "year")
+veri_nao_area <- veri_nao_area %>% inner_join(nao_all, by = "year")
+veri_shiny_area_sd <- veri_shiny_area_sd %>% inner_join(nao_all, by = "year") 
+veri_shiny_area_sd_sp <- veri_shiny_area_sd_sp %>% inner_join(nao_all, by = "year") 
+veri_shiny_sp_sd <- veri_shiny_sp_sd %>% inner_join(nao_all, by = "year")
+
+### İklim verisi gam
+veri_area_sd_cli <- veri_shiny_area_sd %>% select(year,area,total_count,n) %>% 
+  inner_join(cli0, by = c("area","year")) %>% mutate(data_year = year-1985) %>%
+  filter(ANN != -999, parameter %in% c("WS2M","CLOUD_AMT","TS","T2M","QV2M","RH2M","T2MDEW","T2M_MAX","T2M_MIN","T2M_RANGE","PRECTOTCORR",
+                                              "PRECTOTCORR_SUM","PS","WD10M","WD50M","WS10M","WS50M","WS10M_MAX","WS50M_MAX","WS10M_RANGE",
+                                              "WS50M_RANGE")) %>% group_by(year,area,parameter) %>%
+  mutate(ann_summer = mean(c(JUN,JUL,AUG)),ann_post = mean(c(MAR,APR,MAY)),ann_pre = mean(c(SEP,OCT,NOV)),ann_winter = mean(c(DEC,JAN,FEB))) %>%
+  ungroup() 
+
+
+```
+
+#  {.tabset .tabset-fade .tabset-pills}
+
+## All_Area {.tabset .tabset-fade .tabset-pills}
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("All Area"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("area_all", "Select Area", unique(veri_shiny_ae2ae$area)),
+      sliderInput("year_area_all", "Select Year", min = 1986, max = 2020, value = c(1986,1990)),
+      leaflet::leafletOutput("map_area_all")
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Plot",plotOutput("plot_area_all")),
+        tabPanel("Table", DT::DTOutput("table_area_all")),
+        tabPanel("GAM Year", plotOutput("plot_gam_area_all_year"),h2("Summary of the model"),verbatimTextOutput("sum_area_all_year")),
+        tabPanel("GAM NAO", plotOutput("plot_gam_area_all_nao"),h2("Summary of the model"),verbatimTextOutput("sum_area_all_nao")),
+        tabPanel("GAM Year+NAO", plotOutput("plot_gam_area_all_year_nao"),h2("Summary of the model"),verbatimTextOutput("sum_area_all_year_nao"))
+      )
+    )
+  )
+)
+
+server <- function(input,output,session){
+  output$plot_area_all <- renderPlot({
+    data <- veri_shiny_ae2ae %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+    ggplot(data,aes(year,total_count)) + geom_point() + geom_smooth()
+  })
+  output$table_area_all <- DT::renderDT({
+    veri_shiny_ae2ae %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+  })
+  veri_mass_area_all <- reactive({
+    veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count,area) %>%
+      filter(year >= input$year_area_all[1], year <= input$year_area_all[2], area == input$area_all) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+      
+  })
+  output$map_area_all <- leaflet::renderLeaflet({
+    veri_area_all_map <- veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count,area) %>%
+      filter(year >= input$year_area_all[1], year <= input$year_area_all[2], area == input$area_all) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+    veri_mass_area_all() %>%
+      leaflet() %>% 
+      addTiles() %>%
+      setView( 32.85427, 39.91987, zoom = 4) %>% 
+      addTiles() %>% 
+      addCircleMarkers(
+        radius = ~ 5, label = veri_area_all_map$area, popup = paste0(veri_area_all_map$total_count),
+        fillColor = 'red', color = 'red', weight = 1
+      )
+  })
+  output$plot_gam_area_all_year <- renderPlot({
+    data_gam <- veri_nao_area %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_all_year <- renderPrint({
+    data_gam <- veri_nao_area %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_area_all_nao <- renderPlot({
+    data_gam <- veri_nao_area %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_all_nao <- renderPrint({
+    data_gam <- veri_nao_area %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_area_all_year_nao <- renderPlot({
+    data_gam <- veri_nao_area %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_all_year_nao <- renderPrint({
+    data_gam <- veri_nao_area %>% filter(year >= input$year_area_all[1], year <= input$year_area_all[2]) %>% filter(area == input$area_all)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+}
+
+shinyApp(ui = ui, server = server, options = list(height = 1000))
+```
+
+## All_Species {.tabset .tabset-fade .tabset-pills}
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("All Species"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("sp_all", "Select Species", unique(veri_shiny_sp2sp$species_name_TR)),
+      sliderInput("year_sp_all", "Select Year", min = 1986, max = 2020, value = c(1986,1990)),
+      textOutput("text_sp_all")
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Plot & Map", plotOutput("plot_sp_all"),leaflet::leafletOutput("map_sp_all")),
+        tabPanel("Table", DT::DTOutput("table_sp_all")),
+        tabPanel("GAM Year", plotOutput("plot_gam_sp_all_year"),h2("Summary of the model"),verbatimTextOutput("sum_sp_all_year")),
+        tabPanel("GAM NAO", plotOutput("plot_gam_sp_all_nao"),h2("Summary of the model"),verbatimTextOutput("sum_sp_all_nao")),
+        tabPanel("GAM Year+NAO", plotOutput("plot_gam_sp_all_year_nao"),h2("Summary of the model"),verbatimTextOutput("sum_sp_all_year_nao"))
+      )
+    )
+  )
+  
+)
+
+server <- function(input, output, session){
+  output$plot_sp_all <- renderPlot({
+    data <- veri_shiny_sp2sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+    ggplot(data, aes(x = year, y = total_count, size = total)) + geom_point() + geom_smooth() 
+  })
+  output$table_sp_all <- DT::renderDT({
+    veri_shiny_sp2sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+  })
+  output$text_sp_all <- renderText({
+    text_sp_all <- veri_shiny_sp2sp %>% filter(species_name_TR == input$sp_all) %>% select(species_name_scientific)
+    paste(text_sp_all$species_name_scientific[1])
+  })
+  veri_mass_sp_all <- reactive({
+    veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count) %>%
+      filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2], species_name_TR == input$sp_all) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+  })
+  output$map_sp_all <- leaflet::renderLeaflet({
+    veri_sp_all_map <- veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count,area) %>%
+      filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2], species_name_TR == input$sp_all) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+    veri_mass_sp_all() %>%
+      leaflet() %>% 
+      addTiles() %>%
+      setView( 32.85427, 39.91987, zoom = 5) %>% 
+      addTiles() %>% 
+      addCircleMarkers(
+        radius = ~ log(total_count), label = veri_sp_all_map$area, popup = paste0(veri_sp_all_map$total_count),
+        fillColor = 'red', color = 'red', weight = 1
+      )
+  })
+  output$plot_gam_sp_all_year <- renderPlot({
+    data_gam <- veri_nao_sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_all_year <- renderPrint({
+    data_gam <- veri_nao_sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_sp_all_nao <- renderPlot({
+    data_gam <- veri_nao_sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_all_nao <- renderPrint({
+    data_gam <- veri_nao_sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_sp_all_year_nao <- renderPlot({
+    data_gam <- veri_nao_sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_all_year_nao <- renderPrint({
+    data_gam <- veri_nao_sp %>% filter(year >= input$year_sp_all[1], year <= input$year_sp_all[2]) %>% filter(species_name_TR == input$sp_all)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+}
+
+shinyApp(ui = ui,server = server, options = list(height = 1000))
+```
+
+## Area_y2y_sd {.tabset .tabset-fade .tabset-pills}
+### Area {.tabset .tabset-fade .tabset-pills}
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("KOSKS y2y Area"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("area_sd", "Select Area", unique(veri_shiny_area_sd$area)),
+      sliderInput("year_area_sd", "Select Year", min = 1986, max = 2020, value = c(1986,1990)),
+      leaflet::leafletOutput("map_area_sd")
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Plot", plotOutput("plot_area_sd")),
+        tabPanel("Table", DT::DTOutput("table_area_sd")),
+        tabPanel("GAM Year", plotOutput("plot_gam_area_sd_year"),h2("Summary of the model"),verbatimTextOutput("sum_area_sd_year")),
+        tabPanel("GAM NAO", plotOutput("plot_gam_area_sd_nao"),h2("Summary of the model"),verbatimTextOutput("sum_area_sd_nao")),
+        tabPanel("GAM Year+NAO", plotOutput("plot_gam_area_sd_year_nao"),h2("Summary of the model"),verbatimTextOutput("sum_area_sd_year_nao"))
+      )
+    )
+  )
+)
+
+server <- function(input, output, session){
+  output$plot_area_sd <- renderPlot({
+    data <- veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+    print(data)
+    ggplot(data, aes(x = year, y = total_count)) + geom_point() + geom_smooth()
+  }) 
+  output$table_area_sd <- DT::renderDT({
+    veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+  })
+  veri_mass_area_sd <- reactive({
+    veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count,area) %>%
+      filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2], area == input$area_sd) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+  })
+  output$map_area_sd <- leaflet::renderLeaflet({
+    veri_area_sd_map <- veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count,area) %>%
+      filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2], area == input$area_sd) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+    veri_mass_area_sd() %>%
+      leaflet() %>% 
+      addTiles() %>%
+      setView( 32.85427, 39.91987, zoom = 4) %>% 
+      addTiles() %>% 
+      addCircleMarkers(
+        radius = ~ 5, label = veri_area_sd_map$area, popup = paste0(veri_area_sd_map$total_count),
+        fillColor = 'red', color = 'red', weight = 1
+      )
+  })
+  output$plot_gam_area_sd_year <- renderPlot({
+    data_gam <- veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_sd_year <- renderPrint({
+    data_gam <- veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_area_sd_nao <- renderPlot({
+    data_gam <- veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_sd_nao <- renderPrint({
+    data_gam <- veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_area_sd_year_nao <- renderPlot({
+    data_gam <- veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_sd_year_nao <- renderPrint({
+    data_gam <- veri_shiny_area_sd %>% filter(year >= input$year_area_sd[1], year <= input$year_area_sd[2]) %>% filter(area == input$area_sd)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+}
+
+shinyApp(ui = ui, server = server, options = list(height = 1000))
+
+```
+
+### Species {.tabset .tabset-fade .tabset-pills}
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("KOSKS y2y Area"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("area_sd_sp", "Select Area", unique(veri_shiny_area_sd_sp$area)),
+      sliderInput("year_area_sd_sp", "Select Year", min = 1986, max = 2020, value = c(1986,1990)),
+      pickerInput("checkGroup_area_sd_sp", label = "Choose the species", choices = unique(veri_shiny_area_sd_sp$species_name_TR),
+       multiple = TRUE,options = list(`actions-box` = TRUE))
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Plot", plotOutput("plot_area_sd_sp")),
+        tabPanel("Table", DT::DTOutput("table_area_sd_sp")),
+        tabPanel("GAM Year", plotOutput("plot_gam_area_sd_sp_year"),h2("Summary of the model"),verbatimTextOutput("sum_area_sd_sp_year")),
+        tabPanel("GAM NAO", plotOutput("plot_gam_area_sd_sp_nao"),h2("Summary of the model"),verbatimTextOutput("sum_area_sd_sp_nao")),
+        tabPanel("GAM Year+NAO", plotOutput("plot_gam_area_sd_sp_year_nao"),h2("Summary of the model"),verbatimTextOutput("sum_area_sd_sp_year_nao"))
+      )
+    )
+  )
+)
+
+server <- function(input, output, session){
+  output$plot_area_sd_sp <- renderPlot({
+    data <- veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% 
+    filter(area == input$area_sd_sp) %>% filter(species_name_TR %in% input$checkGroup_area_sd_sp)
+    print(data)
+    ggplot(data, aes(x = year, y = total_count, color = species_name_TR)) + geom_line() 
+  }) 
+  output$table_area_sd_sp <- DT::renderDT({
+    veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% filter(area == input$area_sd_sp) %>%
+    filter(species_name_TR %in% input$checkGroup_area_sd_sp)
+  })
+  output$plot_gam_area_sd_sp_year <- renderPlot({
+    data_gam <- veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% 
+      filter(area == input$area_sd_sp) %>% filter(species_name_TR %in% input$checkGroup_area_sd_sp)
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_sd_sp_year <- renderPrint({
+    data_gam <- veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% 
+      filter(area == input$area_sd_sp) %>% filter(species_name_TR %in% input$checkGroup_area_sd_sp) 
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_area_sd_sp_nao <- renderPlot({
+    data_gam <- veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% 
+      filter(area == input$area_sd_sp) %>% filter(species_name_TR %in% input$checkGroup_area_sd_sp)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_sd_sp_nao <- renderPrint({
+    data_gam <- veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% 
+      filter(area == input$area_sd_sp) %>% filter(species_name_TR %in% input$checkGroup_area_sd_sp)
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_area_sd_sp_year_nao <- renderPlot({
+    data_gam <- veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% 
+      filter(area == input$area_sd_sp) %>% filter(species_name_TR %in% input$checkGroup_area_sd_sp)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_area_sd_sp_year_nao <- renderPrint({
+    data_gam <- veri_shiny_area_sd_sp %>% filter(year >= input$year_area_sd_sp[1], year <= input$year_area_sd_sp[2]) %>% 
+      filter(area == input$area_sd_sp) %>% filter(species_name_TR %in% input$checkGroup_area_sd_sp)
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+}
+
+shinyApp(ui = ui, server = server, options = list(height = 1000))
+
+```
+
+## Species_y2y_sd {.tabset .tabset-fade .tabset-pills}
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("KOSKS y2y Species"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("sp_sd", "Select Species", unique(veri_shiny_sp_sd$species_name_TR)),
+      sliderInput("year_sp_sd", "Select Year", min = 1986, max = 2020, value = c(1986,1990)),
+      textOutput("text_sp_sd")
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Plot & Map", plotOutput("plot"),leaflet::leafletOutput("map_sp_sd")),
+        tabPanel("Table", DT::DTOutput("table")),
+        tabPanel("GAM Year", plotOutput("plot_gam_sp_sd_year"),h2("Summary of the model"),verbatimTextOutput("sum_sp_sd_year")),
+        tabPanel("GAM NAO", plotOutput("plot_gam_sp_sd_nao"),h2("Summary of the model"),verbatimTextOutput("sum_sp_sd_nao")),
+        tabPanel("GAM Year+NAO", plotOutput("plot_gam_sp_sd_year_nao"),h2("Summary of the model"),verbatimTextOutput("sum_sp_sd_nao_year"))
+      )
+    )
+  )
+)
+
+server <- function(input, output, session){
+  output$plot <- renderPlot({
+    data <- veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd)
+    ggplot(data, aes(x = year, y = total_count, size = total)) + geom_point() + geom_smooth() 
+  })
+  output$table <- DT::renderDT({
+    veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd)
+  })
+  output$text_sp_sd <- renderText({
+    text_sp_sd <- veri_shiny_sp_sd %>% filter(species_name_TR == input$sp_sd) %>% select(species_name_scientific.x)
+    paste(text_sp_sd$species_name_scientific.x[1])
+  })
+  veri_mass_sp_sd <- reactive({
+    veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count) %>%
+      filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2], species_name_TR == input$sp_sd) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+  })
+  output$map_sp_sd <- leaflet::renderLeaflet({
+    veri_sp_sd_map <- veri0 %>% select(year,latitude,longitude,species_name_TR,species_name_scientific,count,area) %>%
+      filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2], species_name_TR == input$sp_sd) %>% group_by(latitude,longitude) %>% 
+      mutate(total_count = sum(count))
+    veri_mass_sp_sd() %>%
+      leaflet() %>% 
+      addTiles() %>%
+      setView( 32.85427, 39.91987, zoom = 5) %>% 
+      addTiles() %>% 
+      addCircleMarkers(
+        radius = ~ log(total_count), label = veri_sp_sd_map$area, popup = paste0(veri_sp_sd_map$total_count),
+        fillColor = 'red', color = 'red', weight = 1
+      )
+  })
+  output$plot_gam_sp_sd_year <- renderPlot({
+    data_gam <- veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd) 
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_sd_year <- renderPrint({
+    data_gam <- veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd) 
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_sp_sd_nao <- renderPlot({
+    data_gam <- veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd) 
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_sd_nao <- renderPrint({
+    data_gam <- veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd) 
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_sp_sd_year_nao <- renderPlot({
+    data_gam <- veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd) 
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_sd_nao_year <- renderPrint({
+    data_gam <- veri_shiny_sp_sd %>% filter(year >= input$year_sp_sd[1], year <= input$year_sp_sd[2]) %>% filter(species_name_TR == input$sp_sd) 
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+}
+
+
+shinyApp(ui = ui, server = server, options = list(height = 1000))
+
+```
+
+## Species_Taxonomy {.tabset .tabset-fade .tabset-pills}
+
+### Order {.tabset .tabset-fade .tabset-pills}
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("All Species & Order"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("sp_all_order", "Select Order", unique(veri0_taxon$result.order)),
+      sliderInput("year_sp_all_order", "Select Year", min = 1986, max = 2020, value = c(1986,1990)),
+      textOutput("text_sp_all_order")
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Plot & Map", plotOutput("plot_sp_all_order"),leaflet::leafletOutput("map_sp_all_order")),
+        tabPanel("Table", DT::DTOutput("table_sp_all_order")),
+        tabPanel("GAM Year", plotOutput("plot_gam_sp_all_order_year"),h2("Summary of the model"),verbatimTextOutput("sum_all_order_year")),
+        tabPanel("GAM NAO", plotOutput("plot_gam_sp_all_order_nao"),h2("Summary of the model"),verbatimTextOutput("sum_all_order_nao")),
+        tabPanel("GAM Year+NAO", plotOutput("plot_gam_sp_all_order_year_nao"),h2("Summary of the model"),verbatimTextOutput("sum_all_order_nao_year")) 
+      )
+    )
+  )
+  
+)
+
+server <- function(input, output, session){
+  output$plot_sp_all_order <- renderPlot({
+    data <- veri0_taxon %>% filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2]) %>% filter(result.order == input$sp_all_order) %>%
+      group_by(year, result.order) %>% mutate(total_count = sum(count)) %>% filter(year >= 1986) %>%
+      inner_join(veri_year2count, by = "year")
+    ggplot(data, aes(x = year, y = total_count, size = total)) + geom_point() + geom_smooth() 
+  })
+  output$table_sp_all_order <- DT::renderDT({
+    veri0_taxon %>% filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2]) %>% filter(result.order == input$sp_all_order)
+  })
+  veri_mass_sp_all_order <- reactive({
+    veri0_taxon %>% select(year,latitude,longitude,result.order,count) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>% 
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count))
+  })
+  output$map_sp_all_order <- leaflet::renderLeaflet({
+    veri_sp_all_order_map <- veri0_taxon %>% select(year,latitude,longitude,result.order,count,area) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count))
+    veri_mass_sp_all_order() %>%
+      leaflet() %>% 
+      addTiles() %>%
+      setView( 32.85427, 39.91987, zoom = 5) %>% 
+      addTiles() %>% 
+      addCircleMarkers(
+        radius = ~ log(total_count), label = veri_sp_all_order_map$area, popup = paste0(veri_sp_all_order_map$total_count),
+        fillColor = 'red', color = 'red', weight = 1
+      )
+  })
+  output$plot_gam_sp_all_order_year <- renderPlot({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.order,count,area) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_all_order_year <- renderPrint({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.order,count,area) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985)  
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_sp_all_order_nao <- renderPlot({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.order,count,area) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_all_order_nao <- renderPrint({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.order,count,area) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_sp_all_order_year_nao <- renderPlot({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.order,count,area) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_all_order_nao_year <- renderPrint({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.order,count,area) %>%
+      filter(year >= input$year_sp_all_order[1], year <= input$year_sp_all_order[2], result.order == input$sp_all_order) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+}
+shinyApp(ui = ui,server = server, options = list(height = 1000))
+
+```
+
+### Family {.tabset .tabset-fade .tabset-pills}
+
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("All Species & Family"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("sp_all_family", "Select Family", unique(veri0_taxon$result.family)),
+      sliderInput("year_sp_all_family", "Select Year", min = 1986, max = 2020, value = c(1986,1990)),
+      textOutput("text_sp_all_family")
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Plot & Map", plotOutput("plot_sp_all_family"),leaflet::leafletOutput("map_sp_all_family")),
+        tabPanel("Table", DT::DTOutput("table_sp_all_family")),
+        tabPanel("GAM Year", plotOutput("plot_gam_sp_all_family_year"),h2("Summary of the model"),verbatimTextOutput("sum_sp_all_family_year")),
+        tabPanel("GAM NAO", plotOutput("plot_gam_sp_all_family_nao"),h2("Summary of the model"),verbatimTextOutput("sum_sp_all_family_nao")),
+        tabPanel("GAM Year+NAO", plotOutput("plot_gam_all_family_year_nao"),h2("Summary of the model"),verbatimTextOutput("sum_sp_all_family_year_nao"))       )
+    )
+  )
+  
+)
+
+server <- function(input, output, session){
+  output$plot_sp_all_family <- renderPlot({
+    data <- veri0_taxon %>% filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2]) %>% 
+    filter(result.family == input$sp_all_family) %>% group_by(year, result.family) %>% mutate(total_count = sum(count)) %>% filter(year >= 1986) %>%
+    inner_join(veri_year2count, by = "year")
+    ggplot(data, aes(x = year, y = total_count, size = total)) + geom_point() + geom_smooth() 
+  })
+  output$table_sp_all_family <- DT::renderDT({
+    veri0_taxon %>% filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2]) %>% filter(result.family == input$sp_all_family)
+  })
+  veri_mass_sp_all_family <- reactive({
+    veri0_taxon %>% select(year,latitude,longitude,result.family,count) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>% 
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count))
+  })
+  output$map_sp_all_family <- leaflet::renderLeaflet({
+    veri_sp_all_family_map <- veri0_taxon %>% select(year,latitude,longitude,result.family,count,area) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count))
+    veri_mass_sp_all_family() %>%
+      leaflet() %>% 
+      addTiles() %>%
+      setView( 32.85427, 39.91987, zoom = 5) %>% 
+      addTiles() %>% 
+      addCircleMarkers(
+        radius = ~ log(total_count), label = veri_sp_all_family_map$area, popup = paste0(veri_sp_all_family_map$total_count),
+        fillColor = 'red', color = 'red', weight = 1
+      )
+  })
+  output$plot_gam_sp_all_family_year <- renderPlot({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.family,count,area) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985)  
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_all_family_year <- renderPrint({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.family,count,area) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985)  
+    a <- gam(total_count ~ s(data_year), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_sp_all_family_nao <- renderPlot({
+   data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.family,count,area) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985)  
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_all_family_nao <- renderPrint({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.family,count,area) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+  output$plot_gam_all_family_year_nao <- renderPlot({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.family,count,area) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    plot(a)
+  })
+  output$sum_sp_all_family_year_nao <- renderPrint({
+    data_gam <- veri0_taxon %>% select(year,latitude,longitude,result.family,count,area) %>%
+      filter(year >= input$year_sp_all_family[1], year <= input$year_sp_all_family[2], result.family == input$sp_all_family) %>%
+      group_by(latitude,longitude) %>% mutate(total_count = sum(count)) %>% inner_join(nao_winter0, by = "year") %>% mutate(data_year = year-1985) 
+    a <- gam(total_count ~ s(data_year)+s(mean_nao), data = data_gam, method = "REML")
+    summary(a)
+  })
+}
+shinyApp(ui = ui,server = server, options = list(height = 1000))
+
+```
+
+## GAM Summary_Specific {.tabset .tabset-fade .tabset-pills}
+### Single Parameter
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("GAM Summary"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("area_gams", "Select Area", unique(gamsummaryS$w)),
+      selectizeInput("para_gams","Select Parameter", unique(gamsummaryS$parameter)),
+      selectizeInput("byear_gams","Select by = year",unique(gamsummaryS$by))
+    ),
+    mainPanel(
+      plotOutput("plot_gams")
+      )
+    )
+  )
+
+server <- function(input, output, session){
+  output$plot_gams <- renderPlot({
+    data <- gamsummaryS %>% filter(w == input$area_gams, parameter == input$para_gams, by == input$byear_gams)
+    ggplot(data, aes(x = dev.expl, fill = partype)) + geom_histogram() 
+  })
+  
+
+}
+
+shinyApp(ui = ui,server = server, options = list(height = 1000))
+```
+
+### Double Parameter
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("GAM Summary"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("area_gams", "Select Area", unique(gamsummaryD$o)),
+      selectizeInput("para1_gams","Select Parameter 1", unique(gamsummaryD$par1)),
+      selectizeInput("para2_gams","Select Parameter 2", unique(gamsummaryD$par2)),
+      selectizeInput("type1_gams","Select Parameter 1 Type",unique(gamsummaryD$partype1))
+    ),
+    mainPanel(
+      plotOutput("plot_gams")
+      )
+    )
+  )
+
+server <- function(input, output, session){
+  output$plot_gams <- renderPlot({
+    data <- gamsummaryD %>% filter(o == input$area_gams, par1 == input$para1_gams, par2 == input$para2_gams, partype1 == input$type1_gams)
+    ggplot(data, aes(x = dev.expl,fill = partype2)) + geom_histogram() 
+  })
+}
+
+shinyApp(ui = ui,server = server, options = list(height = 1000))
+```
+
+## GAM Summary_ALL {.tabset .tabset-fade .tabset-pills}
+### Single Parameter
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("GAM Summary"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("para_gams","Select Parameter", unique(gamsummaryS$parameter)),
+      selectizeInput("byear_gams","Select by = year",unique(gamsummaryS$by))
+    ),
+    mainPanel(
+      plotOutput("plot_gams")
+      )
+    )
+  )
+
+server <- function(input, output, session){
+  output$plot_gams <- renderPlot({
+    data <- gamsummaryS %>% filter(parameter == input$para_gams, by == input$byear_gams)
+    ggplot(data, aes(x = dev.expl, fill = partype)) + geom_histogram() 
+  })
+  
+
+}
+
+shinyApp(ui = ui,server = server, options = list(height = 1000))
+```
+
+### Double Parameter
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("GAM Summary"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("para1_gams","Select Parameter 1", unique(gamsummaryD$par1)),
+      selectizeInput("para2_gams","Select Parameter 2", unique(gamsummaryD$par2)),
+      selectizeInput("type1_gams","Select Parameter 1 Type",unique(gamsummaryD$partype1))
+    ),
+    mainPanel(
+      plotOutput("plot_gams")
+      )
+    )
+  )
+
+server <- function(input, output, session){
+  output$plot_gams <- renderPlot({
+    data <- gamsummaryD %>% filter(par1 == input$para1_gams, par2 == input$para2_gams, partype1 == input$type1_gams)
+    ggplot(data, aes(x = dev.expl,fill = partype2)) + geom_histogram() 
+  })
+}
+
+shinyApp(ui = ui,server = server, options = list(height = 1000))
+```
+
+## GAM Run {.tabset .tabset-fade .tabset-pills}
+```{r echo=FALSE, error=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+
+ui <- fluidPage(
+  titlePanel("Area GAM"),
+  sidebarLayout(
+    sidebarPanel(
+      selectizeInput("area_sd", "Select Area", unique(veri_area_sd_cli$area)),
+      selectizeInput("par_1","Select Parameter One", unique(veri_area_sd_cli$parameter)),
+      selectizeInput("par_2","Select Parameter One", unique(veri_area_sd_cli$parameter)),
+      selectizeInput("par2par","Select Parmeter Type",c("ANN-ANN","ANN-pre","ANN-post","ANN-winter","ANN-summer",
+                                                        "pre-ANN","pre-pre","pre-post","pre-winter","pre-summer",
+                                                        "post-ANN","post-pre","post-post","post-winter","post-summer",
+                                                        "winter-ANN","winter-pre","winter-post","winter-winter","winter-summer",
+                                                        "summer-ANN","summer-pre","summer-post","summer-winter","summer-summer"))
+    ),
+    mainPanel(
+      tabsetPanel(
+        tabPanel("GAM Year", plotOutput("plot_gam"),h2("Summary of the model"),verbatimTextOutput("sum_gam")),
+        tabPanel("GAM Check", plotOutput("plot_gamcheck"))
+      )
+    )
+  )
+)
+
+server <- function(input, output, session){
+  output$plot_gam <- renderPlot({
+     veri_fun1 <- veri_area_sd_cli %>% filter(parameter == input$par_1, area == input$area_sd) %>%
+       select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count) 
+     veri_fun2 <- veri_area_sd_cli %>% filter(parameter == input$par_2, area == input$area_sd) %>%
+       select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count)
+     veri_fun <- veri_fun1 %>% inner_join(veri_fun2, by =c("year","area","total_count"))
+     if(input$par2par == "ANN-ANN"){
+       a <- gam(total_count ~ s(ANN.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-pre") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-post") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-winter") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-summer") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-ANN") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-pre") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-post") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-winter") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-summer") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-ANN") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-pre") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-post") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-winter") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-summer") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-ANN") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-pre") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-post") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-winter") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-summer") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-ANN") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-pre") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-post") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-winter") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     }
+     
+     plot(a,pages = 1, all.terms = TRUE)
+  })
+  output$plot_gamcheck <- renderPlot({
+     veri_fun1 <- veri_area_sd_cli %>% filter(parameter == input$par_1, area == input$area_sd) %>%
+       select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count) 
+     veri_fun2 <- veri_area_sd_cli %>% filter(parameter == input$par_2, area == input$area_sd) %>%
+       select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count)
+     veri_fun <- veri_fun1 %>% inner_join(veri_fun2, by =c("year","area","total_count"))
+     if(input$par2par == "ANN-ANN"){
+       a <- gam(total_count ~ s(ANN.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-pre") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-post") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-winter") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-summer") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-ANN") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-pre") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-post") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-winter") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-summer") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-ANN") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-pre") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-post") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-winter") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-summer") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-ANN") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-pre") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-post") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-winter") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-summer") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-ANN") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-pre") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-post") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-winter") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     }
+     
+     gam.check(a,pages = 1, all.terms = TRUE)
+  })
+  output$sum_gam <- renderPrint({
+    veri_fun1 <- veri_area_sd_cli %>% filter(parameter == input$par_1, area == input$area_sd) %>%
+       select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count) 
+     veri_fun2 <- veri_area_sd_cli %>% filter(parameter == input$par_2, area == input$area_sd) %>%
+       select(year,parameter,area,ann_summer,ann_post,ann_pre,ann_winter,ANN,total_count)
+     veri_fun <- veri_fun1 %>% inner_join(veri_fun2, by =c("year","area","total_count"))
+     if(input$par2par == "ANN-ANN"){
+       a <- gam(total_count ~ s(ANN.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-pre") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-post") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-winter") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "ANN-summer") {
+       a <- gam(total_count ~ s(ANN.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-ANN") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-pre") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-post") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-winter") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "pre-summer") {
+       a <- gam(total_count ~ s(ann_pre.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-ANN") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-pre") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-post") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-winter") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "post-summer") {
+       a <- gam(total_count ~ s(ann_post.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-ANN") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-pre") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-post") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-winter") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "summer-summer") {
+       a <- gam(total_count ~ s(ann_summer.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-ANN") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ANN.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-pre") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_pre.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-post") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_post.y),data = veri_fun, method = "REML")
+     } else if (input$par2par == "winter-winter") {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_winter.y),data = veri_fun, method = "REML")
+     } else {
+       a <- gam(total_count ~ s(ann_winter.x)+s(ann_summer.y),data = veri_fun, method = "REML")
+     }
+     
+    summary(a)
+  })
+  
+}
+
+shinyApp(ui = ui, server = server, options = list(height = 1000))
+
+```
+
